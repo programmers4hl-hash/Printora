@@ -13,12 +13,10 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -29,14 +27,13 @@ public class MainActivity extends Activity {
             "com.programmers4hl.printora.USB_PERMISSION";
 
     private UsbManager usbManager;
-    private LinearLayout deviceList;
-    private TextView statusText;
-
-    private UsbDevice selectedDevice;
+    private UsbDevice printer;
     private UsbDeviceConnection connection;
-    private UsbEndpoint outEndpoint;
 
-    private final BroadcastReceiver usbReceiver =
+    private TextView status;
+    private TextView details;
+
+    private final BroadcastReceiver receiver =
             new BroadcastReceiver() {
 
         @Override
@@ -60,15 +57,17 @@ public class MainActivity extends Activity {
 
             if (granted && device != null) {
 
-                statusText.setText(
+                printer = device;
+
+                status.setText(
                         "USB permission granted"
                 );
 
-                connectPrinter(device);
+                inspectPrinter();
 
             } else {
 
-                statusText.setText(
+                status.setText(
                         "USB permission denied"
                 );
             }
@@ -86,21 +85,18 @@ public class MainActivity extends Activity {
                         getSystemService(
                                 USB_SERVICE);
 
-        IntentFilter filter =
-                new IntentFilter(
-                        USB_PERMISSION);
-
         registerReceiver(
-                usbReceiver,
-                filter,
+                receiver,
+                new IntentFilter(
+                        USB_PERMISSION),
                 Context.RECEIVER_NOT_EXPORTED);
 
         createUI();
 
-        detectPrinters();
+        findPrinter();
     }
 
-    private TextView text(
+    private TextView makeText(
             String value,
             float size) {
 
@@ -113,14 +109,14 @@ public class MainActivity extends Activity {
 
         t.setPadding(
                 16,
-                14,
+                12,
                 16,
-                14);
+                12);
 
         return t;
     }
 
-    private Button button(
+    private Button makeButton(
             String value) {
 
         Button b =
@@ -149,70 +145,59 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(
                 0xFF0B0B0D);
 
-        TextView title =
-                text(
+        root.addView(
+                makeText(
                         "Printora",
-                        28);
+                        28));
 
-        title.setGravity(
-                Gravity.CENTER_VERTICAL);
+        root.addView(
+                makeText(
+                        "Epson L3110 USB Diagnostic",
+                        14));
 
-        root.addView(title);
+        status =
+                makeText(
+                        "Searching...",
+                        16);
 
-        TextView subtitle =
-                text(
-                        "Direct USB • Epson ESC/P-R",
-                        14);
-
-        subtitle.setTextColor(
-                0xFFBBBBBB);
-
-        root.addView(subtitle);
-
-        statusText =
-                text(
-                        "Looking for USB printer...",
-                        15);
-
-        root.addView(statusText);
+        root.addView(status);
 
         Button detect =
-                button(
+                makeButton(
                         "DETECT PRINTER");
 
         detect.setOnClickListener(
-                v -> detectPrinters());
+                v -> findPrinter());
 
         root.addView(detect);
 
-        Button connect =
-                button(
-                        "CONNECT EPSON");
+        Button inspect =
+                makeButton(
+                        "INSPECT USB");
 
-        connect.setOnClickListener(
-                v -> connectSelected());
+        inspect.setOnClickListener(
+                v -> inspectPrinter());
 
-        root.addView(connect);
+        root.addView(inspect);
 
-        Button test =
-                button(
-                        "SEND USB TEST");
+        Button deviceId =
+                makeButton(
+                        "READ PRINTER ID");
 
-        test.setOnClickListener(
-                v -> sendTest());
+        deviceId.setOnClickListener(
+                v -> readDeviceId());
 
-        root.addView(test);
+        root.addView(deviceId);
 
-        deviceList =
-                new LinearLayout(this);
-
-        deviceList.setOrientation(
-                LinearLayout.VERTICAL);
+        details =
+                makeText(
+                        "No diagnostic data yet.",
+                        14);
 
         ScrollView scroll =
                 new ScrollView(this);
 
-        scroll.addView(deviceList);
+        scroll.addView(details);
 
         root.addView(
                 scroll,
@@ -222,24 +207,21 @@ public class MainActivity extends Activity {
                         1));
 
         setContentView(root);
-    }    private void detectPrinters() {
+    }    private void findPrinter() {
 
-        deviceList.removeAllViews();
+        deviceListClear();
 
         HashMap<String, UsbDevice> devices =
                 usbManager.getDeviceList();
 
         if (devices.isEmpty()) {
 
-            statusText.setText(
+            status.setText(
                     "No USB device found"
             );
 
-            deviceList.addView(
-                    text(
-                            "Connect the Epson L3110 using USB OTG.",
-                            16
-                    )
+            details.setText(
+                    "Connect the Epson L3110 with USB OTG."
             );
 
             return;
@@ -248,62 +230,94 @@ public class MainActivity extends Activity {
         for (UsbDevice device :
                 devices.values()) {
 
-            String info =
-                    "USB Device\n" +
-                    "VID: " +
-                    String.format(
-                            "%04X",
-                            device.getVendorId()
-                    ) +
-                    "\nPID: " +
-                    String.format(
-                            "%04X",
-                            device.getProductId()
-                    ) +
-                    "\nInterfaces: " +
-                    device.getInterfaceCount();
+            if (device.getVendorId() == 0x04B8 &&
+                    device.getProductId() == 0x1142) {
 
-            TextView infoView =
-                    text(
-                            info,
-                            16
+                printer = device;
+
+                status.setText(
+                        "Epson L3110 detected"
+                );
+
+                addPrinterButton(device);
+
+                if (usbManager.hasPermission(
+                        device)) {
+
+                    inspectPrinter();
+
+                } else {
+
+                    details.setText(
+                            "Epson L3110 found.\n" +
+                            "USB permission is required."
                     );
+                }
 
-            deviceList.addView(
-                    infoView
-            );
-
-            Button permission =
-                    button(
-                            usbManager.hasPermission(device)
-                                    ? "CONNECT"
-                                    : "ALLOW USB"
-                    );
-
-            permission.setOnClickListener(
-                    v -> {
-
-                        selectedDevice = device;
-
-                        if (usbManager.hasPermission(
-                                device)) {
-
-                            connectPrinter(device);
-
-                        } else {
-
-                            requestPermission(device);
-                        }
-                    }
-            );
-
-            deviceList.addView(
-                    permission
-            );
+                return;
+            }
         }
 
-        statusText.setText(
-                "USB printer detected"
+        status.setText(
+                "USB device found, but not L3110"
+        );
+
+        for (UsbDevice device :
+                devices.values()) {
+
+            addPrinterButton(device);
+        }
+    }
+
+    private void deviceListClear() {
+
+        LinearLayout parent =
+                (LinearLayout)
+                        details.getParent();
+
+        if (parent == null) {
+            return;
+        }
+    }
+
+    private void addPrinterButton(
+            UsbDevice device) {
+
+        Button b =
+                makeButton(
+                        "CONNECT " +
+                        String.format(
+                                "%04X:%04X",
+                                device.getVendorId(),
+                                device.getProductId()
+                        )
+                );
+
+        b.setOnClickListener(
+                v -> {
+
+                    printer = device;
+
+                    if (usbManager.hasPermission(
+                            device)) {
+
+                        inspectPrinter();
+
+                    } else {
+
+                        requestPermission(
+                                device
+                        );
+                    }
+                }
+        );
+
+        LinearLayout root =
+                (LinearLayout)
+                        status.getParent();
+
+        root.addView(
+                b
         );
     }
 
@@ -315,8 +329,7 @@ public class MainActivity extends Activity {
                         this,
                         0,
                         new Intent(
-                                USB_PERMISSION
-                        ),
+                                USB_PERMISSION),
                         PendingIntent.FLAG_IMMUTABLE
                 );
 
@@ -326,265 +339,323 @@ public class MainActivity extends Activity {
         );
     }
 
-    private void connectSelected() {
+    private void inspectPrinter() {
 
-        if (selectedDevice == null) {
+        if (printer == null) {
 
-            Toast.makeText(
-                    this,
-                    "Select the Epson printer first",
-                    Toast.LENGTH_SHORT
-            ).show();
+            status.setText(
+                    "No printer selected"
+            );
 
             return;
         }
 
         if (!usbManager.hasPermission(
-                selectedDevice)) {
+                printer)) {
+
+            status.setText(
+                    "USB permission required"
+            );
 
             requestPermission(
-                    selectedDevice
+                    printer
             );
 
             return;
         }
-
-        connectPrinter(
-                selectedDevice
-        );
-    }
-
-    private void connectPrinter(
-            UsbDevice device) {
 
         closeConnection();
 
-        UsbInterface printerInterface =
-                null;
-
-        UsbEndpoint endpoint =
-                null;
-
-        for (int i = 0;
-             i < device.getInterfaceCount();
-             i++) {
-
-            UsbInterface usbInterface =
-                    device.getInterface(i);
-
-            for (int j = 0;
-                 j < usbInterface
-                         .getEndpointCount();
-                 j++) {
-
-                UsbEndpoint ep =
-                        usbInterface
-                                .getEndpoint(j);
-
-                if (ep.getType() ==
-                        UsbConstants.USB_ENDPOINT_XFER_BULK &&
-                    ep.getDirection() ==
-                        UsbConstants.USB_DIR_OUT) {
-
-                    printerInterface =
-                            usbInterface;
-
-                    endpoint =
-                            ep;
-
-                    break;
-                }
-            }
-
-            if (endpoint != null) {
-                break;
-            }
-        }
-
-        if (printerInterface == null ||
-                endpoint == null) {
-
-            statusText.setText(
-                    "No USB print endpoint found"
-            );
-
-            return;
-        }
-
         connection =
                 usbManager.openDevice(
-                        device
+                        printer
                 );
 
         if (connection == null) {
 
-            statusText.setText(
-                    "Unable to open USB printer"
+            status.setText(
+                    "Cannot open Epson L3110"
             );
 
             return;
         }
 
-        if (!connection.claimInterface(
-                printerInterface,
-                true)) {
+        StringBuilder report =
+                new StringBuilder();
 
-            statusText.setText(
-                    "Unable to claim printer USB interface"
+        report.append(
+                "EPSON L3110\n\n"
+        );
+
+        report.append(
+                "VID: "
+        );
+
+        report.append(
+                String.format(
+                        "%04X",
+                        printer.getVendorId()
+                )
+        );
+
+        report.append(
+                "\nPID: "
+        );
+
+        report.append(
+                String.format(
+                        "%04X",
+                        printer.getProductId()
+                )
+        );
+
+        report.append(
+                "\nInterfaces: "
+        );
+
+        report.append(
+                printer.getInterfaceCount()
+        );
+
+        report.append(
+                "\n\n"
+        );
+
+        for (int i = 0;
+             i < printer.getInterfaceCount();
+             i++) {
+
+            UsbInterface intf =
+                    printer.getInterface(i);
+
+            report.append(
+                    "Interface "
             );
 
-            closeConnection();
+            report.append(i);
+
+            report.append(
+                    "\nClass: "
+            );
+
+            report.append(
+                    intf.getInterfaceClass()
+            );
+
+            report.append(
+                    "\nSubclass: "
+            );
+
+            report.append(
+                    intf.getInterfaceSubclass()
+            );
+
+            report.append(
+                    "\nProtocol: "
+            );
+
+            report.append(
+                    intf.getInterfaceProtocol()
+            );
+
+            report.append(
+                    "\nEndpoints: "
+            );
+
+            report.append(
+                    intf.getEndpointCount()
+            );
+
+            report.append(
+                    "\n"
+            );
+
+            for (int j = 0;
+                 j < intf.getEndpointCount();
+                 j++) {
+
+                UsbEndpoint ep =
+                        intf.getEndpoint(j);
+
+                report.append(
+                        "  EP "
+                );
+
+                report.append(
+                        String.format(
+                                "0x%02X",
+                                ep.getAddress()
+                        )
+                );
+
+                report.append(
+                        " type="
+                );
+
+                report.append(
+                        ep.getType()
+                );
+
+                report.append(
+                        " direction="
+                );
+
+                report.append(
+                        ep.getDirection()
+                );
+
+                report.append(
+                        " maxPacket="
+                );
+
+                report.append(
+                        ep.getMaxPacketSize()
+                );
+
+                report.append(
+                        "\n"
+                );
+            }
+
+            report.append("\n");
+        }
+
+        details.setText(
+                report.toString()
+        );
+
+        status.setText(
+                "USB inspection complete"
+        );
+    }    private void readDeviceId() {
+
+        if (printer == null) {
+
+            status.setText(
+                    "No Epson printer selected"
+            );
 
             return;
         }
 
-        selectedDevice = device;
-        outEndpoint = endpoint;
+        if (!usbManager.hasPermission(
+                printer)) {
 
-        statusText.setText(
-                "EPSON USB READY"
-        );
-
-        Toast.makeText(
-                this,
-                "Printer connected",
-                Toast.LENGTH_SHORT
-        ).show();
-    }    private void sendTest() {
-
-        if (connection == null ||
-                outEndpoint == null) {
-
-            Toast.makeText(
-                    this,
-                    "Connect the printer first",
-                    Toast.LENGTH_SHORT
-            ).show();
+            requestPermission(
+                    printer
+            );
 
             return;
         }
 
-        statusText.setText(
-                "Sending USB test..."
-        );
+        if (connection == null) {
+
+            connection =
+                    usbManager.openDevice(
+                            printer
+                    );
+        }
+
+        if (connection == null) {
+
+            status.setText(
+                    "Cannot open printer"
+            );
+
+            return;
+        }
 
         new Thread(() -> {
 
-            try {
+            String result =
+                    getPrinterDeviceId();
 
-                byte[] data =
-                        buildTestData();
+            runOnUiThread(() -> {
 
-                int result =
-                        connection.bulkTransfer(
-                                outEndpoint,
-                                data,
-                                data.length,
-                                10000
-                        );
-
-                runOnUiThread(() -> {
-
-                    if (result >= 0) {
-
-                        statusText.setText(
-                                "USB data sent: " +
-                                result +
-                                " bytes"
-                        );
-
-                        Toast.makeText(
-                                this,
-                                "USB test sent",
-                                Toast.LENGTH_SHORT
-                        ).show();
-
-                    } else {
-
-                        statusText.setText(
-                                "USB transfer failed"
-                        );
-                    }
-                });
-
-            } catch (Exception e) {
-
-                runOnUiThread(() ->
-                        statusText.setText(
-                                "USB error: " +
-                                e.getMessage()
-                        )
+                details.setText(
+                        result
                 );
-            }
+
+                if (result.startsWith(
+                        "DEVICE ID READ")) {
+
+                    status.setText(
+                            "Printer ID received"
+                    );
+
+                } else {
+
+                    status.setText(
+                            "Device ID not available"
+                    );
+                }
+            });
 
         }).start();
     }
 
-    private byte[] buildTestData() {
+    private String getPrinterDeviceId() {
 
-        String text =
-                "\n\n" +
-                "PRINTORA USB TEST\n" +
-                "EPSON PRINTER\n" +
-                "------------------------\n" +
-                "USB connection detected.\n" +
-                "This is a transport test.\n" +
-                "\n\n";
+        for (int i = 0;
+             i < printer.getInterfaceCount();
+             i++) {
 
-        byte[] textBytes =
-                text.getBytes(
-                        StandardCharsets.US_ASCII
-                );
+            UsbInterface intf =
+                    printer.getInterface(i);
 
-        byte[] init = new byte[]{
-                0x1B,
-                0x40
-        };
+            int interfaceClass =
+                    intf.getInterfaceClass();
 
-        byte[] feed = new byte[]{
-                0x0A,
-                0x0A,
-                0x0A
-        };
+            if (interfaceClass !=
+                    UsbConstants.USB_CLASS_PRINTER) {
 
-        byte[] result =
-                new byte[
-                        init.length +
-                        textBytes.length +
-                        feed.length
-                ];
+                continue;
+            }
 
-        int position = 0;
+            boolean claimed =
+                    connection.claimInterface(
+                            intf,
+                            true
+                    );
 
-        System.arraycopy(
-                init,
-                0,
-                result,
-                position,
-                init.length
-        );
+            if (!claimed) {
 
-        position += init.length;
+                continue;
+            }
 
-        System.arraycopy(
-                textBytes,
-                0,
-                result,
-                position,
-                textBytes.length
-        );
+            byte[] buffer =
+                    new byte[4096];
 
-        position += textBytes.length;
+            int length =
+                    connection.controlTransfer(
+                            0xA1,
+                            0x00,
+                            0x0000,
+                            intf.getId(),
+                            buffer,
+                            buffer.length,
+                            5000
+                    );
 
-        System.arraycopy(
-                feed,
-                0,
-                result,
-                position,
-                feed.length
-        );
+            if (length > 0) {
 
-        return result;
+                String id =
+                        new String(
+                                buffer,
+                                0,
+                                length,
+                                StandardCharsets.US_ASCII
+                        );
+
+                return
+                        "DEVICE ID READ\n\n" +
+                        id;
+            }
+        }
+
+        return
+                "DEVICE ID READ FAILED\n\n" +
+                "No IEEE-1284 printer ID was returned.";
     }
 
     private void closeConnection() {
@@ -592,13 +663,14 @@ public class MainActivity extends Activity {
         if (connection != null) {
 
             try {
+
                 connection.close();
+
             } catch (Exception ignored) {
             }
         }
 
         connection = null;
-        outEndpoint = null;
     }    @Override
     protected void onDestroy() {
 
@@ -607,7 +679,7 @@ public class MainActivity extends Activity {
         try {
 
             unregisterReceiver(
-                    usbReceiver
+                    receiver
             );
 
         } catch (Exception ignored) {
