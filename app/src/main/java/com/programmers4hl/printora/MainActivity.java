@@ -6,18 +6,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.Cursor;
+import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.CancellationSignal;
-import android.os.ParcelFileDescriptor;
-import android.print.PageRange;
-import android.print.PrintAttributes;
-import android.print.PrintDocumentAdapter;
-import android.print.PrintDocumentInfo;
-import android.print.PrintManager;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -25,8 +20,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.FileOutputStream;
-import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 
 public class MainActivity extends Activity {
@@ -34,12 +28,13 @@ public class MainActivity extends Activity {
     private static final String USB_PERMISSION =
             "com.programmers4hl.printora.USB_PERMISSION";
 
-    private static final int PICK_PDF = 100;
-
     private UsbManager usbManager;
     private LinearLayout deviceList;
-    private TextView pdfInfo;
-    private Uri selectedPdf;
+    private TextView statusText;
+
+    private UsbDevice selectedDevice;
+    private UsbDeviceConnection connection;
+    private UsbEndpoint outEndpoint;
 
     private final BroadcastReceiver usbReceiver =
             new BroadcastReceiver() {
@@ -54,24 +49,29 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            UsbDevice device =
+                    intent.getParcelableExtra(
+                            UsbManager.EXTRA_DEVICE);
+
             boolean granted =
                     intent.getBooleanExtra(
                             UsbManager.EXTRA_PERMISSION_GRANTED,
                             false);
 
-            if (granted) {
-                Toast.makeText(
-                        MainActivity.this,
-                        "USB permission granted",
-                        Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(
-                        MainActivity.this,
-                        "USB permission denied",
-                        Toast.LENGTH_SHORT).show();
-            }
+            if (granted && device != null) {
 
-            detectUSB();
+                statusText.setText(
+                        "USB permission granted"
+                );
+
+                connectPrinter(device);
+
+            } else {
+
+                statusText.setText(
+                        "USB permission denied"
+                );
+            }
         }
     };
 
@@ -96,36 +96,40 @@ public class MainActivity extends Activity {
                 Context.RECEIVER_NOT_EXPORTED);
 
         createUI();
-        detectUSB();
+
+        detectPrinters();
     }
 
-    private TextView makeText(
-            String text,
+    private TextView text(
+            String value,
             float size) {
 
-        TextView view =
+        TextView t =
                 new TextView(this);
 
-        view.setText(text);
-        view.setTextColor(0xFFFFFFFF);
-        view.setTextSize(size);
+        t.setText(value);
+        t.setTextColor(0xFFFFFFFF);
+        t.setTextSize(size);
 
-        view.setPadding(
-                16, 14, 16, 14);
+        t.setPadding(
+                16,
+                14,
+                16,
+                14);
 
-        return view;
+        return t;
     }
 
-    private Button makeButton(
-            String text) {
+    private Button button(
+            String value) {
 
-        Button button =
+        Button b =
                 new Button(this);
 
-        button.setText(text);
-        button.setAllCaps(false);
+        b.setText(value);
+        b.setAllCaps(false);
 
-        return button;
+        return b;
     }
 
     private void createUI() {
@@ -137,13 +141,16 @@ public class MainActivity extends Activity {
                 LinearLayout.VERTICAL);
 
         root.setPadding(
-                20, 35, 20, 20);
+                20,
+                35,
+                20,
+                20);
 
         root.setBackgroundColor(
                 0xFF0B0B0D);
 
         TextView title =
-                makeText(
+                text(
                         "Printora",
                         28);
 
@@ -153,8 +160,8 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle =
-                makeText(
-                        "PDF printing • USB printer",
+                text(
+                        "Direct USB • Epson ESC/P-R",
                         14);
 
         subtitle.setTextColor(
@@ -162,40 +169,39 @@ public class MainActivity extends Activity {
 
         root.addView(subtitle);
 
-        Button selectPDF =
-                makeButton(
-                        "SELECT PDF");
-
-        selectPDF.setOnClickListener(
-                v -> selectPDF());
-
-        root.addView(selectPDF);
-
-        pdfInfo =
-                makeText(
-                        "No PDF selected",
+        statusText =
+                text(
+                        "Looking for USB printer...",
                         15);
 
-        pdfInfo.setTextColor(
-                0xFFBBBBBB);
-
-        root.addView(pdfInfo);        Button print =
-                makeButton(
-                        "PRINT SELECTED PDF");
-
-        print.setOnClickListener(
-                v -> printPDF());
-
-        root.addView(print);
+        root.addView(statusText);
 
         Button detect =
-                makeButton(
-                        "DETECT USB PRINTERS");
+                button(
+                        "DETECT PRINTER");
 
         detect.setOnClickListener(
-                v -> detectUSB());
+                v -> detectPrinters());
 
         root.addView(detect);
+
+        Button connect =
+                button(
+                        "CONNECT EPSON");
+
+        connect.setOnClickListener(
+                v -> connectSelected());
+
+        root.addView(connect);
+
+        Button test =
+                button(
+                        "SEND USB TEST");
+
+        test.setOnClickListener(
+                v -> sendTest());
+
+        root.addView(test);
 
         deviceList =
                 new LinearLayout(this);
@@ -216,258 +222,22 @@ public class MainActivity extends Activity {
                         1));
 
         setContentView(root);
-    }
-
-    private void selectPDF() {
-
-        Intent intent =
-                new Intent(
-                        Intent.ACTION_OPEN_DOCUMENT);
-
-        intent.addCategory(
-                Intent.CATEGORY_OPENABLE);
-
-        intent.setType(
-                "application/pdf");
-
-        intent.addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION |
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-
-        startActivityForResult(
-                intent,
-                PICK_PDF);
-    }
-
-    @Override
-    protected void onActivityResult(
-            int requestCode,
-            int resultCode,
-            Intent data) {
-
-        super.onActivityResult(
-                requestCode,
-                resultCode,
-                data);
-
-        if (requestCode != PICK_PDF) {
-            return;
-        }
-
-        if (resultCode != RESULT_OK) {
-            return;
-        }
-
-        if (data == null) {
-            return;
-        }
-
-        Uri uri = data.getData();
-
-        if (uri == null) {
-            return;
-        }
-
-        selectedPdf = uri;
-
-        try {
-            getContentResolver()
-                    .takePersistableUriPermission(
-                            selectedPdf,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) {
-        }
-
-        String name =
-                getFileName(selectedPdf);
-
-        int pages =
-                getPageCount(selectedPdf);
-
-        String pageText;
-
-        if (pages > 0) {
-            pageText =
-                    String.valueOf(pages);
-        } else {
-            pageText = "Unknown";
-        }
-
-        pdfInfo.setText(
-                "Selected: " +
-                name +
-                "\nPages: " +
-                pageText);
-    }
-
-    private String getFileName(
-            Uri uri) {
-
-        Cursor cursor = null;
-
-        try {
-
-            cursor =
-                    getContentResolver()
-                            .query(
-                                    uri,
-                                    new String[]{
-                                            "_display_name"
-                                    },
-                                    null,
-                                    null,
-                                    null);
-
-            if (cursor != null &&
-                    cursor.moveToFirst()) {
-
-                int index =
-                        cursor.getColumnIndex(
-                                "_display_name");
-
-                if (index >= 0) {
-
-                    String name =
-                            cursor.getString(index);
-
-                    if (name != null &&
-                            !name.isEmpty()) {
-
-                        return name;
-                    }
-                }
-            }
-
-        } catch (Exception ignored) {
-
-        } finally {
-
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-
-        return "document.pdf";
-    }
-
-    private int getPageCount(
-            Uri uri) {
-
-        ParcelFileDescriptor descriptor =
-                null;
-
-        android.graphics.pdf.PdfRenderer renderer =
-                null;
-
-        try {
-
-            descriptor =
-                    getContentResolver()
-                            .openFileDescriptor(
-                                    uri,
-                                    "r");
-
-            if (descriptor == null) {
-                return -1;
-            }
-
-            renderer =
-                    new android.graphics.pdf.PdfRenderer(
-                            descriptor);
-
-            return renderer.getPageCount();
-
-        } catch (Exception e) {
-
-            return -1;
-
-        } finally {
-
-            if (renderer != null) {
-
-                try {
-                    renderer.close();
-                } catch (Exception ignored) {
-                }
-            }
-
-            if (descriptor != null) {
-
-                try {
-                    descriptor.close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
-    }    private void printPDF() {
-
-        if (selectedPdf == null) {
-
-            Toast.makeText(
-                    this,
-                    "Select a PDF first",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-        PrintManager printManager =
-                (PrintManager)
-                        getSystemService(
-                                PRINT_SERVICE
-                        );
-
-        if (printManager == null) {
-
-            Toast.makeText(
-                    this,
-                    "Printing service unavailable",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-        PrintAttributes attributes =
-                new PrintAttributes.Builder()
-                        .setMediaSize(
-                                PrintAttributes.MediaSize.ISO_A4
-                        )
-                        .setColorMode(
-                                PrintAttributes.COLOR_MODE_COLOR
-                        )
-                        .build();
-
-        String name =
-                getFileName(selectedPdf);
-
-        printManager.print(
-                "Printora - " + name,
-
-                new PDFPrintAdapter(
-                        this,
-                        selectedPdf,
-                        name
-                ),
-
-                attributes
-        );
-    }
-
-    private void detectUSB() {
-
-        if (deviceList == null) {
-            return;
-        }
+    }    private void detectPrinters() {
 
         deviceList.removeAllViews();
 
-        if (usbManager == null) {
+        HashMap<String, UsbDevice> devices =
+                usbManager.getDeviceList();
+
+        if (devices.isEmpty()) {
+
+            statusText.setText(
+                    "No USB device found"
+            );
 
             deviceList.addView(
-                    makeText(
-                            "USB service unavailable.",
+                    text(
+                            "Connect the Epson L3110 using USB OTG.",
                             16
                     )
             );
@@ -475,131 +245,78 @@ public class MainActivity extends Activity {
             return;
         }
 
-        HashMap<String, UsbDevice> devices =
-                usbManager.getDeviceList();
-
-        if (devices.isEmpty()) {
-
-            TextView empty =
-                    makeText(
-                            "No USB device detected.\n\n" +
-                            "Connect the Epson L3110 " +
-                            "using a USB-OTG adapter.",
-                            16
-                    );
-
-            deviceList.addView(empty);
-
-            return;
-        }
-
         for (UsbDevice device :
                 devices.values()) {
 
-            addUSBDevice(device);
+            String info =
+                    "USB Device\n" +
+                    "VID: " +
+                    String.format(
+                            "%04X",
+                            device.getVendorId()
+                    ) +
+                    "\nPID: " +
+                    String.format(
+                            "%04X",
+                            device.getProductId()
+                    ) +
+                    "\nInterfaces: " +
+                    device.getInterfaceCount();
+
+            TextView infoView =
+                    text(
+                            info,
+                            16
+                    );
+
+            deviceList.addView(
+                    infoView
+            );
+
+            Button permission =
+                    button(
+                            usbManager.hasPermission(device)
+                                    ? "CONNECT"
+                                    : "ALLOW USB"
+                    );
+
+            permission.setOnClickListener(
+                    v -> {
+
+                        selectedDevice = device;
+
+                        if (usbManager.hasPermission(
+                                device)) {
+
+                            connectPrinter(device);
+
+                        } else {
+
+                            requestPermission(device);
+                        }
+                    }
+            );
+
+            deviceList.addView(
+                    permission
+            );
         }
-    }
 
-    private void addUSBDevice(
-            UsbDevice device) {
-
-        LinearLayout card =
-                new LinearLayout(this);
-
-        card.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        card.setPadding(
-                10,
-                10,
-                10,
-                10
-        );
-
-        card.setBackgroundColor(
-                0xFF19191D
-        );
-
-        String information =
-                "USB device\n" +
-                "VID: " +
-                String.format(
-                        "%04X",
-                        device.getVendorId()
-                ) +
-                "\nPID: " +
-                String.format(
-                        "%04X",
-                        device.getProductId()
-                ) +
-                "\nClass: " +
-                device.getDeviceClass() +
-                "\nInterfaces: " +
-                device.getInterfaceCount();
-
-        card.addView(
-                makeText(
-                        information,
-                        16
-                )
-        );
-
-        boolean ready =
-                usbManager.hasPermission(
-                        device
-                );
-
-        Button permission =
-                makeButton(
-                        ready
-                                ? "USB READY"
-                                : "REQUEST USB PERMISSION"
-                );
-
-        permission.setOnClickListener(
-                v ->
-                        requestUSBPermission(
-                                device
-                        )
-        );
-
-        card.addView(permission);
-
-        deviceList.addView(
-                card,
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                )
+        statusText.setText(
+                "USB printer detected"
         );
     }
 
-    private void requestUSBPermission(
+    private void requestPermission(
             UsbDevice device) {
-
-        if (usbManager.hasPermission(
-                device)) {
-
-            Toast.makeText(
-                    this,
-                    "USB device permission already granted",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-        Intent intent =
-                new Intent(
-                        USB_PERMISSION
-                );
 
         PendingIntent pendingIntent =
                 PendingIntent.getBroadcast(
                         this,
                         0,
-                        intent,
+                        new Intent(
+                                USB_PERMISSION
+                        ),
                         PendingIntent.FLAG_IMMUTABLE
                 );
 
@@ -607,8 +324,285 @@ public class MainActivity extends Activity {
                 device,
                 pendingIntent
         );
+    }
+
+    private void connectSelected() {
+
+        if (selectedDevice == null) {
+
+            Toast.makeText(
+                    this,
+                    "Select the Epson printer first",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        if (!usbManager.hasPermission(
+                selectedDevice)) {
+
+            requestPermission(
+                    selectedDevice
+            );
+
+            return;
+        }
+
+        connectPrinter(
+                selectedDevice
+        );
+    }
+
+    private void connectPrinter(
+            UsbDevice device) {
+
+        closeConnection();
+
+        UsbInterface printerInterface =
+                null;
+
+        UsbEndpoint endpoint =
+                null;
+
+        for (int i = 0;
+             i < device.getInterfaceCount();
+             i++) {
+
+            UsbInterface usbInterface =
+                    device.getInterface(i);
+
+            for (int j = 0;
+                 j < usbInterface
+                         .getEndpointCount();
+                 j++) {
+
+                UsbEndpoint ep =
+                        usbInterface
+                                .getEndpoint(j);
+
+                if (ep.getType() ==
+                        UsbConstants.USB_ENDPOINT_XFER_BULK &&
+                    ep.getDirection() ==
+                        UsbConstants.USB_DIR_OUT) {
+
+                    printerInterface =
+                            usbInterface;
+
+                    endpoint =
+                            ep;
+
+                    break;
+                }
+            }
+
+            if (endpoint != null) {
+                break;
+            }
+        }
+
+        if (printerInterface == null ||
+                endpoint == null) {
+
+            statusText.setText(
+                    "No USB print endpoint found"
+            );
+
+            return;
+        }
+
+        connection =
+                usbManager.openDevice(
+                        device
+                );
+
+        if (connection == null) {
+
+            statusText.setText(
+                    "Unable to open USB printer"
+            );
+
+            return;
+        }
+
+        if (!connection.claimInterface(
+                printerInterface,
+                true)) {
+
+            statusText.setText(
+                    "Unable to claim printer USB interface"
+            );
+
+            closeConnection();
+
+            return;
+        }
+
+        selectedDevice = device;
+        outEndpoint = endpoint;
+
+        statusText.setText(
+                "EPSON USB READY"
+        );
+
+        Toast.makeText(
+                this,
+                "Printer connected",
+                Toast.LENGTH_SHORT
+        ).show();
+    }    private void sendTest() {
+
+        if (connection == null ||
+                outEndpoint == null) {
+
+            Toast.makeText(
+                    this,
+                    "Connect the printer first",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        statusText.setText(
+                "Sending USB test..."
+        );
+
+        new Thread(() -> {
+
+            try {
+
+                byte[] data =
+                        buildTestData();
+
+                int result =
+                        connection.bulkTransfer(
+                                outEndpoint,
+                                data,
+                                data.length,
+                                10000
+                        );
+
+                runOnUiThread(() -> {
+
+                    if (result >= 0) {
+
+                        statusText.setText(
+                                "USB data sent: " +
+                                result +
+                                " bytes"
+                        );
+
+                        Toast.makeText(
+                                this,
+                                "USB test sent",
+                                Toast.LENGTH_SHORT
+                        ).show();
+
+                    } else {
+
+                        statusText.setText(
+                                "USB transfer failed"
+                        );
+                    }
+                });
+
+            } catch (Exception e) {
+
+                runOnUiThread(() ->
+                        statusText.setText(
+                                "USB error: " +
+                                e.getMessage()
+                        )
+                );
+            }
+
+        }).start();
+    }
+
+    private byte[] buildTestData() {
+
+        String text =
+                "\n\n" +
+                "PRINTORA USB TEST\n" +
+                "EPSON PRINTER\n" +
+                "------------------------\n" +
+                "USB connection detected.\n" +
+                "This is a transport test.\n" +
+                "\n\n";
+
+        byte[] textBytes =
+                text.getBytes(
+                        StandardCharsets.US_ASCII
+                );
+
+        byte[] init = new byte[]{
+                0x1B,
+                0x40
+        };
+
+        byte[] feed = new byte[]{
+                0x0A,
+                0x0A,
+                0x0A
+        };
+
+        byte[] result =
+                new byte[
+                        init.length +
+                        textBytes.length +
+                        feed.length
+                ];
+
+        int position = 0;
+
+        System.arraycopy(
+                init,
+                0,
+                result,
+                position,
+                init.length
+        );
+
+        position += init.length;
+
+        System.arraycopy(
+                textBytes,
+                0,
+                result,
+                position,
+                textBytes.length
+        );
+
+        position += textBytes.length;
+
+        System.arraycopy(
+                feed,
+                0,
+                result,
+                position,
+                feed.length
+        );
+
+        return result;
+    }
+
+    private void closeConnection() {
+
+        if (connection != null) {
+
+            try {
+                connection.close();
+            } catch (Exception ignored) {
+            }
+        }
+
+        connection = null;
+        outEndpoint = null;
     }    @Override
     protected void onDestroy() {
+
+        closeConnection();
 
         try {
 
@@ -620,217 +614,5 @@ public class MainActivity extends Activity {
         }
 
         super.onDestroy();
-    }
-
-    private static class PDFPrintAdapter
-            extends PrintDocumentAdapter {
-
-        private final Context context;
-        private final Uri pdfUri;
-        private final String fileName;
-
-        PDFPrintAdapter(
-                Context context,
-                Uri pdfUri,
-                String fileName) {
-
-            this.context = context;
-            this.pdfUri = pdfUri;
-            this.fileName = fileName;
-        }
-
-        @Override
-        public void onLayout(
-                PrintAttributes oldAttributes,
-                PrintAttributes newAttributes,
-                CancellationSignal cancellationSignal,
-                LayoutResultCallback callback,
-                Bundle extras) {
-
-            if (cancellationSignal.isCanceled()) {
-
-                callback.onLayoutCancelled();
-                return;
-            }
-
-            int pages = getPages();
-
-            PrintDocumentInfo info =
-                    new PrintDocumentInfo.Builder(
-                            fileName
-                    )
-                    .setContentType(
-                            PrintDocumentInfo.CONTENT_TYPE_DOCUMENT
-                    )
-                    .setPageCount(
-                            pages > 0
-                                    ? pages
-                                    : PrintDocumentInfo.PAGE_COUNT_UNKNOWN
-                    )
-                    .build();
-
-            callback.onLayoutFinished(
-                    info,
-                    true
-            );
-        }
-
-        @Override
-        public void onWrite(
-                PageRange[] pages,
-                ParcelFileDescriptor destination,
-                CancellationSignal cancellationSignal,
-                WriteResultCallback callback) {
-
-            InputStream input = null;
-            FileOutputStream output = null;
-
-            try {
-
-                input =
-                        context
-                                .getContentResolver()
-                                .openInputStream(
-                                        pdfUri
-                                );
-
-                if (input == null) {
-                    throw new Exception(
-                            "Unable to open PDF"
-                    );
-                }
-
-                output =
-                        new FileOutputStream(
-                                destination
-                                        .getFileDescriptor()
-                        );
-
-                byte[] buffer =
-                        new byte[8192];
-
-                int count;
-
-                while ((count =
-                        input.read(buffer)) != -1) {
-
-                    if (cancellationSignal
-                            .isCanceled()) {
-
-                        callback.onWriteCancelled();
-                        return;
-                    }
-
-                    output.write(
-                            buffer,
-                            0,
-                            count
-                    );
-                }
-
-                output.flush();
-
-                callback.onWriteFinished(
-                        new PageRange[]{
-                                PageRange.ALL_PAGES
-                        }
-                );
-
-            } catch (Exception e) {
-
-                if (cancellationSignal
-                        .isCanceled()) {
-
-                    callback.onWriteCancelled();
-
-                } else {
-
-                    String message =
-                            e.getMessage();
-
-                    if (message == null ||
-                            message.isEmpty()) {
-
-                        message =
-                                "Unable to prepare PDF";
-                    }
-
-                    callback.onWriteFailed(
-                            message
-                    );
-                }
-
-            } finally {
-
-                if (input != null) {
-
-                    try {
-                        input.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-
-                if (output != null) {
-
-                    try {
-                        output.flush();
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        }
-
-        private int getPages() {
-
-            ParcelFileDescriptor descriptor =
-                    null;
-
-            android.graphics.pdf.PdfRenderer renderer =
-                    null;
-
-            try {
-
-                descriptor =
-                        context
-                                .getContentResolver()
-                                .openFileDescriptor(
-                                        pdfUri,
-                                        "r"
-                                );
-
-                if (descriptor == null) {
-                    return -1;
-                }
-
-                renderer =
-                        new android.graphics.pdf.PdfRenderer(
-                                descriptor
-                        );
-
-                return renderer.getPageCount();
-
-            } catch (Exception e) {
-
-                return -1;
-
-            } finally {
-
-                if (renderer != null) {
-
-                    try {
-                        renderer.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-
-                if (descriptor != null) {
-
-                    try {
-                        descriptor.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        }
     }
 }
