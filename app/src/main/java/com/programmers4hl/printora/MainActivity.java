@@ -27,7 +27,6 @@ import android.widget.Toast;
 
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.HashMap;
 
 public class MainActivity extends Activity {
@@ -40,7 +39,6 @@ public class MainActivity extends Activity {
     private UsbManager usbManager;
     private LinearLayout deviceList;
     private TextView pdfInfo;
-
     private Uri selectedPdf;
 
     private final BroadcastReceiver usbReceiver =
@@ -59,24 +57,18 @@ public class MainActivity extends Activity {
             boolean granted =
                     intent.getBooleanExtra(
                             UsbManager.EXTRA_PERMISSION_GRANTED,
-                            false
-                    );
+                            false);
 
             if (granted) {
-
                 Toast.makeText(
                         MainActivity.this,
                         "USB permission granted",
-                        Toast.LENGTH_SHORT
-                ).show();
-
+                        Toast.LENGTH_SHORT).show();
             } else {
-
                 Toast.makeText(
                         MainActivity.this,
                         "USB permission denied",
-                        Toast.LENGTH_SHORT
-                ).show();
+                        Toast.LENGTH_SHORT).show();
             }
 
             detectUSB();
@@ -92,22 +84,18 @@ public class MainActivity extends Activity {
         usbManager =
                 (UsbManager)
                         getSystemService(
-                                USB_SERVICE
-                        );
+                                USB_SERVICE);
 
         IntentFilter filter =
                 new IntentFilter(
-                        USB_PERMISSION
-                );
+                        USB_PERMISSION);
 
         registerReceiver(
                 usbReceiver,
                 filter,
-                Context.RECEIVER_NOT_EXPORTED
-        );
+                Context.RECEIVER_NOT_EXPORTED);
 
         createUI();
-
         detectUSB();
     }
 
@@ -123,11 +111,7 @@ public class MainActivity extends Activity {
         view.setTextSize(size);
 
         view.setPadding(
-                16,
-                14,
-                16,
-                14
-        );
+                16, 14, 16, 14);
 
         return view;
     }
@@ -150,86 +134,66 @@ public class MainActivity extends Activity {
                 new LinearLayout(this);
 
         root.setOrientation(
-                LinearLayout.VERTICAL
-        );
+                LinearLayout.VERTICAL);
 
         root.setPadding(
-                20,
-                35,
-                20,
-                20
-        );
+                20, 35, 20, 20);
 
         root.setBackgroundColor(
-                0xFF0B0B0D
-        );
+                0xFF0B0B0D);
 
         TextView title =
                 makeText(
                         "Printora",
-                        28
-                );
+                        28);
 
         title.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
+                Gravity.CENTER_VERTICAL);
 
         root.addView(title);
 
         TextView subtitle =
                 makeText(
                         "PDF printing • USB printer",
-                        14
-                );
+                        14);
 
         subtitle.setTextColor(
-                0xFFBBBBBB
-        );
+                0xFFBBBBBB);
 
         root.addView(subtitle);
 
         Button selectPDF =
                 makeButton(
-                        "SELECT PDF"
-                );
+                        "SELECT PDF");
 
         selectPDF.setOnClickListener(
-                v -> selectPDF()
-        );
+                v -> selectPDF());
 
         root.addView(selectPDF);
 
         pdfInfo =
                 makeText(
                         "No PDF selected",
-                        15
-                );
+                        15);
 
         pdfInfo.setTextColor(
-                0xFFBBBBBB
-        );
+                0xFFBBBBBB);
 
-        root.addView(pdfInfo);
-
-        Button print =
+        root.addView(pdfInfo);        Button print =
                 makeButton(
-                        "PRINT SELECTED PDF"
-                );
+                        "PRINT SELECTED PDF");
 
         print.setOnClickListener(
-                v -> printPDF()
-        );
+                v -> printPDF());
 
         root.addView(print);
 
         Button detect =
                 makeButton(
-                        "DETECT USB PRINTERS"
-                );
+                        "DETECT USB PRINTERS");
 
         detect.setOnClickListener(
-                v -> detectUSB()
-        );
+                v -> detectUSB());
 
         root.addView(detect);
 
@@ -237,24 +201,19 @@ public class MainActivity extends Activity {
                 new LinearLayout(this);
 
         deviceList.setOrientation(
-                LinearLayout.VERTICAL
-        );
+                LinearLayout.VERTICAL);
 
         ScrollView scroll =
                 new ScrollView(this);
 
-        scroll.addView(
-                deviceList
-        );
+        scroll.addView(deviceList);
 
         root.addView(
                 scroll,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         0,
-                        1
-                )
-        );
+                        1));
 
         setContentView(root);
     }
@@ -263,26 +222,21 @@ public class MainActivity extends Activity {
 
         Intent intent =
                 new Intent(
-                        Intent.ACTION_OPEN_DOCUMENT
-                );
+                        Intent.ACTION_OPEN_DOCUMENT);
 
         intent.addCategory(
-                Intent.CATEGORY_OPENABLE
-        );
+                Intent.CATEGORY_OPENABLE);
 
         intent.setType(
-                "application/pdf"
-        );
+                "application/pdf");
 
         intent.addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION |
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-        );
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 
         startActivityForResult(
                 intent,
-                PICK_PDF
-        );
+                PICK_PDF);
     }
 
     @Override
@@ -294,8 +248,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(
                 requestCode,
                 resultCode,
-                data
-        );
+                data);
 
         if (requestCode != PICK_PDF) {
             return;
@@ -309,33 +262,27 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (data.getData() == null) {
+        Uri uri = data.getData();
+
+        if (uri == null) {
             return;
         }
 
-        selectedPdf =
-                data.getData();
+        selectedPdf = uri;
 
         try {
-
             getContentResolver()
                     .takePersistableUriPermission(
                             selectedPdf,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    );
-
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } catch (Exception ignored) {
         }
 
         String name =
-                getFileName(
-                        selectedPdf
-                );
+                getFileName(selectedPdf);
 
         int pages =
-                getPageCount(
-                        selectedPdf
-                );
+                getPageCount(selectedPdf);
 
         String pageText;
 
@@ -343,16 +290,14 @@ public class MainActivity extends Activity {
             pageText =
                     String.valueOf(pages);
         } else {
-            pageText =
-                    "Unknown";
+            pageText = "Unknown";
         }
 
         pdfInfo.setText(
                 "Selected: " +
                 name +
                 "\nPages: " +
-                pageText
-        );
+                pageText);
     }
 
     private String getFileName(
@@ -371,22 +316,25 @@ public class MainActivity extends Activity {
                                     },
                                     null,
                                     null,
-                                    null
-                            );
+                                    null);
 
             if (cursor != null &&
                     cursor.moveToFirst()) {
 
                 int index =
                         cursor.getColumnIndex(
-                                "_display_name"
-                        );
+                                "_display_name");
 
                 if (index >= 0) {
 
-                    return cursor.getString(
-                            index
-                    );
+                    String name =
+                            cursor.getString(index);
+
+                    if (name != null &&
+                            !name.isEmpty()) {
+
+                        return name;
+                    }
                 }
             }
 
@@ -417,8 +365,7 @@ public class MainActivity extends Activity {
                     getContentResolver()
                             .openFileDescriptor(
                                     uri,
-                                    "r"
-                            );
+                                    "r");
 
             if (descriptor == null) {
                 return -1;
@@ -426,8 +373,7 @@ public class MainActivity extends Activity {
 
             renderer =
                     new android.graphics.pdf.PdfRenderer(
-                            descriptor
-                    );
+                            descriptor);
 
             return renderer.getPageCount();
 
@@ -437,27 +383,23 @@ public class MainActivity extends Activity {
 
         } finally {
 
-            try {
+            if (renderer != null) {
 
-                if (renderer != null) {
+                try {
                     renderer.close();
+                } catch (Exception ignored) {
                 }
-
-            } catch (Exception ignored) {
             }
 
-            try {
+            if (descriptor != null) {
 
-                if (descriptor != null) {
+                try {
                     descriptor.close();
+                } catch (Exception ignored) {
                 }
-
-            } catch (Exception ignored) {
             }
         }
-    }
-
-    private void printPDF() {
+    }    private void printPDF() {
 
         if (selectedPdf == null) {
 
@@ -476,6 +418,17 @@ public class MainActivity extends Activity {
                                 PRINT_SERVICE
                         );
 
+        if (printManager == null) {
+
+            Toast.makeText(
+                    this,
+                    "Printing service unavailable",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
         PrintAttributes attributes =
                 new PrintAttributes.Builder()
                         .setMediaSize(
@@ -487,9 +440,7 @@ public class MainActivity extends Activity {
                         .build();
 
         String name =
-                getFileName(
-                        selectedPdf
-                );
+                getFileName(selectedPdf);
 
         printManager.print(
                 "Printora - " + name,
@@ -511,6 +462,18 @@ public class MainActivity extends Activity {
         }
 
         deviceList.removeAllViews();
+
+        if (usbManager == null) {
+
+            deviceList.addView(
+                    makeText(
+                            "USB service unavailable.",
+                            16
+                    )
+            );
+
+            return;
+        }
 
         HashMap<String, UsbDevice> devices =
                 usbManager.getDeviceList();
@@ -644,9 +607,7 @@ public class MainActivity extends Activity {
                 device,
                 pendingIntent
         );
-    }
-
-    @Override
+    }    @Override
     protected void onDestroy() {
 
         try {
@@ -661,7 +622,6 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-
     private static class PDFPrintAdapter
             extends PrintDocumentAdapter {
 
@@ -674,14 +634,9 @@ public class MainActivity extends Activity {
                 Uri pdfUri,
                 String fileName) {
 
-            this.context =
-                    context;
-
-            this.pdfUri =
-                    pdfUri;
-
-            this.fileName =
-                    fileName;
+            this.context = context;
+            this.pdfUri = pdfUri;
+            this.fileName = fileName;
         }
 
         @Override
@@ -695,12 +650,10 @@ public class MainActivity extends Activity {
             if (cancellationSignal.isCanceled()) {
 
                 callback.onLayoutCancelled();
-
                 return;
             }
 
-            int pages =
-                    getPages();
+            int pages = getPages();
 
             PrintDocumentInfo info =
                     new PrintDocumentInfo.Builder(
@@ -729,11 +682,8 @@ public class MainActivity extends Activity {
                 CancellationSignal cancellationSignal,
                 WriteResultCallback callback) {
 
-            InputStream input =
-                    null;
-
-            OutputStream output =
-                    null;
+            InputStream input = null;
+            FileOutputStream output = null;
 
             try {
 
@@ -745,7 +695,6 @@ public class MainActivity extends Activity {
                                 );
 
                 if (input == null) {
-
                     throw new Exception(
                             "Unable to open PDF"
                     );
@@ -768,9 +717,7 @@ public class MainActivity extends Activity {
                     if (cancellationSignal
                             .isCanceled()) {
 
-                        callback
-                                .onWriteCancelled();
-
+                        callback.onWriteCancelled();
                         return;
                     }
 
@@ -794,15 +741,15 @@ public class MainActivity extends Activity {
                 if (cancellationSignal
                         .isCanceled()) {
 
-                    callback
-                            .onWriteCancelled();
+                    callback.onWriteCancelled();
 
                 } else {
 
                     String message =
                             e.getMessage();
 
-                    if (message == null) {
+                    if (message == null ||
+                            message.isEmpty()) {
 
                         message =
                                 "Unable to prepare PDF";
@@ -815,22 +762,20 @@ public class MainActivity extends Activity {
 
             } finally {
 
-                try {
+                if (input != null) {
 
-                    if (input != null) {
+                    try {
                         input.close();
+                    } catch (Exception ignored) {
                     }
-
-                } catch (Exception ignored) {
                 }
 
-                try {
+                if (output != null) {
 
-                    if (output != null) {
+                    try {
                         output.flush();
+                    } catch (Exception ignored) {
                     }
-
-                } catch (Exception ignored) {
                 }
             }
         }
@@ -854,5 +799,38 @@ public class MainActivity extends Activity {
                                 );
 
                 if (descriptor == null) {
+                    return -1;
+                }
 
-                    return PrintDocumentInfo
+                renderer =
+                        new android.graphics.pdf.PdfRenderer(
+                                descriptor
+                        );
+
+                return renderer.getPageCount();
+
+            } catch (Exception e) {
+
+                return -1;
+
+            } finally {
+
+                if (renderer != null) {
+
+                    try {
+                        renderer.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                if (descriptor != null) {
+
+                    try {
+                        descriptor.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
+    }
+}
