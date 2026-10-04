@@ -10,12 +10,12 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.pdf.PdfDocument;
 import android.graphics.pdf.PdfRenderer;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
@@ -46,15 +46,18 @@ public class MainActivity extends Activity {
     private LinearLayout deviceList;
 
     private TextView selectedPdfText;
-    private android.net.Uri selectedPdfUri;
+    private Uri selectedPdfUri;
 
     private final BroadcastReceiver usbReceiver =
             new BroadcastReceiver() {
 
         @Override
-        public void onReceive(Context context, Intent intent) {
+        public void onReceive(
+                Context context,
+                Intent intent) {
 
-            if (!ACTION_USB_PERMISSION.equals(intent.getAction())) {
+            if (!ACTION_USB_PERMISSION.equals(
+                    intent.getAction())) {
                 return;
             }
 
@@ -100,7 +103,9 @@ public class MainActivity extends Activity {
                 );
 
         IntentFilter filter =
-                new IntentFilter(ACTION_USB_PERMISSION);
+                new IntentFilter(
+                        ACTION_USB_PERMISSION
+                );
 
         registerReceiver(
                 usbReceiver,
@@ -115,8 +120,7 @@ public class MainActivity extends Activity {
 
     private TextView makeText(
             String value,
-            float size
-    ) {
+            float size) {
 
         TextView view =
                 new TextView(this);
@@ -135,7 +139,8 @@ public class MainActivity extends Activity {
         return view;
     }
 
-    private Button makeButton(String title) {
+    private Button makeButton(
+            String title) {
 
         Button button =
                 new Button(this);
@@ -243,9 +248,7 @@ public class MainActivity extends Activity {
         ScrollView scroll =
                 new ScrollView(this);
 
-        scroll.addView(
-                deviceList
-        );
+        scroll.addView(deviceList);
 
         root.addView(
                 scroll,
@@ -289,8 +292,7 @@ public class MainActivity extends Activity {
     protected void onActivityResult(
             int requestCode,
             int resultCode,
-            Intent data
-    ) {
+            Intent data) {
 
         super.onActivityResult(
                 requestCode,
@@ -331,15 +333,17 @@ public class MainActivity extends Activity {
                 );
 
         selectedPdfText.setText(
-                "Selected: " + fileName +
+                "Selected: " +
+                fileName +
                 "\nPages: " +
-                (pages > 0 ? pages : "Unknown")
+                (pages > 0
+                        ? pages
+                        : "Unknown")
         );
     }
 
     private String getFileName(
-            android.net.Uri uri
-    ) {
+            Uri uri) {
 
         Cursor cursor = null;
 
@@ -359,7 +363,14 @@ public class MainActivity extends Activity {
             if (cursor != null &&
                     cursor.moveToFirst()) {
 
-                return cursor.getString(0);
+                int index =
+                        cursor.getColumnIndex(
+                                "_display_name"
+                        );
+
+                if (index >= 0) {
+                    return cursor.getString(index);
+                }
             }
 
         } catch (Exception ignored) {
@@ -375,8 +386,7 @@ public class MainActivity extends Activity {
     }
 
     private int getPdfPageCount(
-            android.net.Uri uri
-    ) {
+            Uri uri) {
 
         ParcelFileDescriptor descriptor =
                 null;
@@ -464,12 +474,16 @@ public class MainActivity extends Activity {
 
         printManager.print(
                 "Printora - " +
-                        getFileName(selectedPdfUri),
+                        getFileName(
+                                selectedPdfUri
+                        ),
 
                 new PdfPrintAdapter(
                         this,
                         selectedPdfUri,
-                        getFileName(selectedPdfUri)
+                        getFileName(
+                                selectedPdfUri
+                        )
                 ),
 
                 attributes
@@ -477,6 +491,10 @@ public class MainActivity extends Activity {
     }
 
     private void detectPrinters() {
+
+        if (deviceList == null) {
+            return;
+        }
 
         deviceList.removeAllViews();
 
@@ -551,10 +569,24 @@ public class MainActivity extends Activity {
                     );
 
             permission.setOnClickListener(
-                    v -> requestUsbPermission(device)
+                    v ->
+                            requestUsbPermission(
+                                    device
+                            )
             );
 
             card.addView(permission);
+
+            Button refresh =
+                    makeButton(
+                            "REFRESH"
+                    );
+
+            refresh.setOnClickListener(
+                    v -> detectPrinters()
+            );
+
+            card.addView(refresh);
 
             deviceList.addView(
                     card,
@@ -567,8 +599,7 @@ public class MainActivity extends Activity {
     }
 
     private void requestUsbPermission(
-            UsbDevice device
-    ) {
+            UsbDevice device) {
 
         if (usbManager.hasPermission(device)) {
 
@@ -600,20 +631,34 @@ public class MainActivity extends Activity {
         );
     }
 
+    @Override
+    protected void onDestroy() {
+
+        super.onDestroy();
+
+        try {
+
+            unregisterReceiver(
+                    usbReceiver
+            );
+
+        } catch (Exception ignored) {
+        }
+    }
+
     private static class PdfPrintAdapter
             extends PrintDocumentAdapter {
 
         private final Context context;
-        private final android.net.Uri pdfUri;
+        private final Uri pdfUri;
         private final String fileName;
 
         private int pageCount;
 
         PdfPrintAdapter(
                 Context context,
-                android.net.Uri pdfUri,
-                String fileName
-        ) {
+                Uri pdfUri,
+                String fileName) {
 
             this.context = context;
             this.pdfUri = pdfUri;
@@ -626,8 +671,7 @@ public class MainActivity extends Activity {
                 PrintAttributes newAttributes,
                 CancellationSignal cancellationSignal,
                 LayoutResultCallback callback,
-                Bundle extras
-        ) {
+                Bundle extras) {
 
             if (cancellationSignal.isCanceled()) {
 
@@ -664,14 +708,13 @@ public class MainActivity extends Activity {
                 PageRange[] pages,
                 ParcelFileDescriptor destination,
                 CancellationSignal cancellationSignal,
-                WriteResultCallback callback
-        ) {
+                WriteResultCallback callback) {
 
-            PdfDocument document = null;
+            PdfDocument output = null;
 
             try {
 
-                document =
+                output =
                         createPrintablePdf(
                                 pages,
                                 cancellationSignal
@@ -684,14 +727,16 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                FileOutputStream output =
+                FileOutputStream stream =
                         new FileOutputStream(
                                 destination.getFileDescriptor()
                         );
 
-                document.writeTo(output);
+                output.writeTo(stream);
 
-                output.flush();
+                stream.flush();
+
+                stream.close();
 
                 callback.onWriteFinished(
                         new PageRange[]{
@@ -709,10 +754,10 @@ public class MainActivity extends Activity {
 
             } finally {
 
-                if (document != null) {
+                if (output != null) {
 
                     try {
-                        document.close();
+                        output.close();
                     } catch (Exception ignored) {
                     }
                 }
@@ -754,54 +799,24 @@ public class MainActivity extends Activity {
             } finally {
 
                 try {
+
                     if (renderer != null) {
                         renderer.close();
                     }
+
                 } catch (Exception ignored) {
                 }
 
                 try {
+
                     if (descriptor != null) {
                         descriptor.close();
                     }
+
                 } catch (Exception ignored) {
                 }
             }
         }
 
         private PdfDocument createPrintablePdf(
-                PageRange[] requestedPages,
-                CancellationSignal cancellationSignal
-        ) throws IOException {
-
-            PdfDocument output =
-                    new PdfDocument();
-
-            ParcelFileDescriptor descriptor =
-                    context.getContentResolver()
-                            .openFileDescriptor(
-                                    pdfUri,
-                                    "r"
-                            );
-
-            if (descriptor == null) {
-                throw new IOException(
-                        "Unable to open PDF"
-                );
-            }
-
-            PdfRenderer renderer =
-                    new PdfRenderer(
-                            descriptor
-                    );
-
-            int totalPages =
-                    renderer.getPageCount();
-
-            for (int pageIndex = 0;
-                 pageIndex < totalPages;
-                 pageIndex++) {
-
-                if (cancellationSignal.isCanceled()) {
-                    break;
-             
+         
